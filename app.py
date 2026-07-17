@@ -2,7 +2,7 @@ import sys
 import csv
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from ldap3 import Server, Connection, ALL, SAFEST_AUTH
+from ldap3 import Server, Connection, ALL
 
 class ADSearchApp:
     def __init__(self, root):
@@ -21,7 +21,7 @@ class ADSearchApp:
         ttk.Label(conn_frame, text="LDAP Server:").grid(row=0, column=0, sticky="w", pady=2)
         self.server_entry = ttk.Entry(conn_frame, width=28)
         self.server_entry.grid(row=0, column=1, padx=5, pady=2)
-        self.server_entry.insert(0, "ldap://10.1.90.250") # Automatically adjusted for your local gateway segment
+        self.server_entry.insert(0, "ldap://10.1.90.250")
 
         ttk.Label(conn_frame, text="Base DN:").grid(row=0, column=2, sticky="w", pady=2)
         self.base_entry = ttk.Entry(conn_frame, width=28)
@@ -31,7 +31,7 @@ class ADSearchApp:
         ttk.Label(conn_frame, text="Domain User:").grid(row=1, column=0, sticky="w", pady=2)
         self.user_entry = ttk.Entry(conn_frame, width=28)
         self.user_entry.grid(row=1, column=1, padx=5, pady=2)
-        self.user_entry.insert(0, "SONATRACH\\f.berraoui") # Pre-filled with your domain configuration user format
+        self.user_entry.insert(0, "SONATRACH\\f.berraoui")
 
         ttk.Label(conn_frame, text="Password:").grid(row=1, column=2, sticky="w", pady=2)
         self.pass_entry = ttk.Entry(conn_frame, show="*", width=28)
@@ -107,7 +107,8 @@ class ADSearchApp:
 
         try:
             server = Server(server_url, get_info=ALL)
-            with Connection(server, user=username, password=password, authentication=SAFEST_AUTH, auto_bind=True) as conn:
+            # Using standard 'SIMPLE' string instead of importing an undefined constant
+            with Connection(server, user=username, password=password, authentication='SIMPLE', auto_bind=True) as conn:
                 attributes = ['sAMAccountName', 'givenName', 'sn', 'department', 'st', 'mail']
                 conn.search(search_base=base_dn, search_filter=ldap_filter, attributes=attributes)
                 
