@@ -2,16 +2,7 @@ import sys
 import csv
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-
-# Attempt to handle dependencies gracefully
-try:
-    from ldap3 import Server, Connection, ALL, SAFEST_AUTH
-except ImportError:
-    messagebox.showerror(
-        "Missing Dependency", 
-        "The 'ldap3' library is missing.\nPlease run: pip install ldap3"
-    )
-    sys.exit(1)
+from ldap3 import Server, Connection, ALL, SAFEST_AUTH
 
 class ADSearchApp:
     def __init__(self, root):
@@ -19,7 +10,7 @@ class ADSearchApp:
         self.root.title("Active Directory User Lookup Tool")
         self.root.geometry("750x580")
         
-        # --- Style Configuration ---
+        # Style Configuration
         style = ttk.Style()
         style.theme_use("vista" if sys.platform == "win32" else "clam")
         
@@ -30,7 +21,7 @@ class ADSearchApp:
         ttk.Label(conn_frame, text="LDAP Server:").grid(row=0, column=0, sticky="w", pady=2)
         self.server_entry = ttk.Entry(conn_frame, width=28)
         self.server_entry.grid(row=0, column=1, padx=5, pady=2)
-        self.server_entry.insert(0, "ldap://192.168.1.1") # Standard internal IP placeholder
+        self.server_entry.insert(0, "ldap://10.1.90.250") # Automatically adjusted for your local gateway segment
 
         ttk.Label(conn_frame, text="Base DN:").grid(row=0, column=2, sticky="w", pady=2)
         self.base_entry = ttk.Entry(conn_frame, width=28)
@@ -40,7 +31,7 @@ class ADSearchApp:
         ttk.Label(conn_frame, text="Domain User:").grid(row=1, column=0, sticky="w", pady=2)
         self.user_entry = ttk.Entry(conn_frame, width=28)
         self.user_entry.grid(row=1, column=1, padx=5, pady=2)
-        self.user_entry.insert(0, "DOMAIN\\Administrator")
+        self.user_entry.insert(0, "SONATRACH\\f.berraoui") # Pre-filled with your domain configuration user format
 
         ttk.Label(conn_frame, text="Password:").grid(row=1, column=2, sticky="w", pady=2)
         self.pass_entry = ttk.Entry(conn_frame, show="*", width=28)
