@@ -31,7 +31,7 @@ class ADSearchApp:
         self.username_entry = ttk.Entry(filter_frame, width=25)
         self.username_entry.grid(row=0, column=1, padx=5, pady=2)
 
-        ttk.Label(filter_frame, text="Matricule (Employee ID):").grid(row=0, column=2, sticky="w", pady=2)
+        ttk.Label(filter_frame, text="Matricule (Employee ID / Initials):").grid(row=0, column=2, sticky="w", pady=2)
         self.matricule_entry = ttk.Entry(filter_frame, width=25)
         self.matricule_entry.grid(row=0, column=3, padx=5, pady=2)
 
@@ -46,7 +46,6 @@ class ADSearchApp:
         self.search_btn = ttk.Button(btn_frame, text="Search User", command=self.search_ad)
         self.search_btn.pack(side="left", padx=5)
         
-        # New administrative action buttons
         self.prop_btn = ttk.Button(btn_frame, text="Show Properties", command=self.show_properties, state="disabled")
         self.prop_btn.pack(side="left", padx=5)
 
@@ -82,7 +81,6 @@ class ADSearchApp:
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Event triggers
         self.tree.bind("<<TreeviewSelect>>", self.on_user_select)
         self.tree.bind("<Double-1>", lambda event: self.show_properties())
 
@@ -131,11 +129,12 @@ class ADSearchApp:
             return
 
         # Build clean Active Directory search syntax
+        # Handles matricule lookups against both employeeID and initials fallback
         ldap_filter = "(&(objectCategory=person)(objectClass=user)"
         if search_user:
             ldap_filter += f"(sAMAccountName=*{search_user}*)"
         if search_mat:
-            ldap_filter += f"(employeeID=*{search_mat}*)"
+            ldap_filter += f"(|(employeeID=*{search_mat}*)(initials=*{search_mat}*))"
         if search_name:
             ldap_filter += f"(displayName=*{search_name}*)"
         ldap_filter += ")"
@@ -149,18 +148,22 @@ class ADSearchApp:
             cmd.ActiveConnection = conn
             
             # Querying the DN along with target visual parameters
-            query = f"<LDAP://corp.sonatrach.dz/DC=corp,DC=sonatrach,DC=dz>;{ldap_filter};sAMAccountName,employeeID,displayName,department,mail,distinguishedName;subtree"
+            query = f"<LDAP://corp.sonatrach.dz/DC=corp,DC=sonatrach,DC=dz>;{ldap_filter};sAMAccountName,employeeID,initials,displayName,department,mail,distinguishedName;subtree"
             cmd.CommandText = query
             
             recordset, _ = cmd.Execute()
             
             while not recordset.EOF:
                 user_id = recordset.Fields("sAMAccountName").Value
-                matricule = recordset.Fields("employeeID").Value
+                employee_id = recordset.Fields("employeeID").Value
+                initials = recordset.Fields("initials").Value
                 fullname = recordset.Fields("displayName").Value
                 dept = recordset.Fields("department").Value
                 email = recordset.Fields("mail").Value
                 dn = recordset.Fields("distinguishedName").Value
+
+                # Fallback to initials if EmployeeID is not set in the schema
+                matricule = employee_id if employee_id else initials
 
                 row_values_ui = (
                     str(user_id or ''),
@@ -198,33 +201,61 @@ class ADSearchApp:
             # Generate properties popup window
             prop_win = tk.Toplevel(self.root)
             prop_win.title(f"User Properties - {self.selected_username}")
-            prop_win.geometry("450x450")
+            prop_win.geometry("580x600")
             prop_win.resizable(False, False)
             prop_win.grab_set() # Lock focus to this window
             
-            main_frame = ttk.Frame(prop_win, padding=20)
-            main_frame.pack(fill="both", expand=True)
+            # Tabbed interface wrapper
+            notebook = ttk.Notebook(prop_win)
+            notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-            ttk.Label(main_frame, text="Active Directory Object Details", font=("Segoe UI", 12, "bold")).pack(pady=(0, 15))
+            # --- TAB 1: Essential Info ---
+            tab_essential = ttk.Frame(notebook)
+            notebook.add(tab_essential, text=" Essential Information ")
 
-            details_frame = ttk.LabelFrame(main_frame, text=" Account Properties ", padding=15)
-            details_frame.pack(fill="both", expand=True)
+            # --- TAB 2: Advanced Info ---
+            tab_advanced = ttk.Frame(notebook)
+            notebook.add(tab_advanced, text=" Advanced Information ")
 
-            # Safely fetch properties using getattr or string values
+            # Scrollable interior container for Tab 1
+            canvas_e = tk.Canvas(tab_essential, borderwidth=0, highlightthickness=0)
+            scroll_e = ttk.Scrollbar(tab_essential, orient="vertical", command=canvas_e.yview)
+            details_e_frame = ttk.LabelFrame(canvas_e, text=" Account Identity Details ", padding=15)
+            
+            details_e_frame.bind(
+                "<Configure>",
+                lambda e: canvas_e.configure(scrollregion=canvas_e.bbox("all"))
+            )
+            
+            canvas_e.create_window((0, 0), window=details_e_frame, anchor="nw", width=520)
+            canvas_e.configure(yscrollcommand=scroll_e.set)
+
+            canvas_e.pack(side="left", fill="both", expand=True)
+            scroll_e.pack(side="right", fill="y")
+
+            # Helper function to grab properties safely
             def get_ad_prop(prop_name):
                 try:
-                    return str(user_obj.Get(prop_name) or 'N/A')
+                    val = user_obj.Get(prop_name)
+                    if isinstance(val, (list, tuple)):
+                        return ", ".join(str(item) for item in val)
+                    return str(val or 'N/A')
                 except Exception:
                     return 'N/A'
 
-            properties = [
-                ("Full Name:", "displayName"),
-                ("Username:", "sAMAccountName"),
-                ("Matricule:", "employeeID"),
-                ("Email:", "mail"),
-                ("Department:", "department"),
+            # Standard essential fields
+            essential_properties = [
+                ("Full Name (CN):", "displayName"),
+                ("Username (sAMAccountName):", "sAMAccountName"),
+                ("Matricule (EmployeeID):", "employeeID"),
+                ("Matricule (Initials):", "initials"),
+                ("Email Address:", "mail"),
                 ("Title:", "title"),
-                ("Phone:", "telephoneNumber")
+                ("Company/Branch:", "company"),
+                ("Department:", "department"),
+                ("Description:", "description"),
+                ("Office Phone:", "telephoneNumber"),
+                ("Mobile Phone:", "mobile")
             ]
 
             # Parse Account Status (Enabled / Disabled)
@@ -236,20 +267,68 @@ class ADSearchApp:
             except Exception:
                 account_status = "Unknown"
 
-            # Render properties cleanly in grid
+            # Render Essential Properties Grid
             row_idx = 0
-            for label, ldap_attr in properties:
-                ttk.Label(details_frame, text=label, font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="w", pady=4, padx=5)
-                ttk.Label(details_frame, text=get_ad_prop(ldap_attr), wraplength=250).grid(row=row_idx, column=1, sticky="w", pady=4, padx=5)
+            for label, ldap_attr in essential_properties:
+                ttk.Label(details_e_frame, text=label, font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="w", pady=4, padx=5)
+                ttk.Label(details_e_frame, text=get_ad_prop(ldap_attr), wraplength=320, justify="left").grid(row=row_idx, column=1, sticky="w", pady=4, padx=5)
                 row_idx += 1
 
             # Account Status Grid Row
-            ttk.Label(details_frame, text="Account Status:", font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="w", pady=4, padx=5)
-            status_lbl = ttk.Label(details_frame, text=account_status, foreground="green" if account_status == "Enabled" else "red", font=("Segoe UI", 9, "bold"))
+            ttk.Label(details_e_frame, text="Account Status:", font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="w", pady=4, padx=5)
+            status_lbl = ttk.Label(details_e_frame, text=account_status, foreground="green" if account_status == "Enabled" else "red", font=("Segoe UI", 9, "bold"))
             status_lbl.grid(row=row_idx, column=1, sticky="w", pady=4, padx=5)
 
-            # Close Button
-            ttk.Button(main_frame, text="Close Properties", command=prop_win.destroy).pack(pady=(15, 0))
+            # --- Tab 2: Advanced Info Layout ---
+            canvas_a = tk.Canvas(tab_advanced, borderwidth=0, highlightthickness=0)
+            scroll_a = ttk.Scrollbar(tab_advanced, orient="vertical", command=canvas_a.yview)
+            details_a_frame = ttk.LabelFrame(canvas_a, text=" Technical System Attributes ", padding=15)
+            
+            details_a_frame.bind(
+                "<Configure>",
+                lambda e: canvas_a.configure(scrollregion=canvas_a.bbox("all"))
+            )
+            
+            canvas_a.create_window((0, 0), window=details_a_frame, anchor="nw", width=520)
+            canvas_a.configure(yscrollcommand=scroll_a.set)
+
+            canvas_a.pack(side="left", fill="both", expand=True)
+            scroll_a.pack(side="right", fill="y")
+
+            # Technical system attributes from your PowerShell dump
+            advanced_properties = [
+                ("User Principal Name (UPN):", "userPrincipalName"),
+                ("Distinguished Name (DN):", "distinguishedName"),
+                ("Object Category:", "objectCategory"),
+                ("Primary Group ID:", "primaryGroupID"),
+                ("Object Class:", "objectClass"),
+                ("State / Province:", "st"),
+                ("Mail Nickname:", "mailNickname")
+            ]
+
+            # Render Advanced Attributes
+            row_idx = 0
+            for label, ldap_attr in advanced_properties:
+                ttk.Label(details_a_frame, text=label, font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="nw", pady=4, padx=5)
+                # Expand line wrap on DN and Category paths
+                ttk.Label(details_a_frame, text=get_ad_prop(ldap_attr), wraplength=320, justify="left").grid(row=row_idx, column=1, sticky="w", pady=4, padx=5)
+                row_idx += 1
+
+            # Render Group Memberships list at the bottom of Advanced properties
+            ttk.Label(details_a_frame, text="Member Of (Security Groups):", font=("Segoe UI", 9, "bold")).grid(row=row_idx, column=0, sticky="nw", pady=8, padx=5)
+            
+            groups_text = get_ad_prop("memberOf")
+            # Parse Group string listing cleanly into block lines
+            if groups_text and groups_text != "N/A":
+                parsed_groups = ""
+                for grp in groups_text.split(", CN="):
+                    clean_grp = grp.replace("CN=", "").split(",")[0]
+                    if clean_grp:
+                        parsed_groups += f"• {clean_grp}\n"
+            else:
+                parsed_groups = "None (Domain Users only)"
+
+            ttk.Label(details_a_frame, text=parsed_groups.strip(), justify="left", font=("Segoe UI", 9)).grid(row=row_idx, column=1, sticky="w", pady=8, padx=5)
 
         except Exception as e:
             messagebox.showerror("Error Opening Properties", f"Could not bind to user object:\n{str(e)}")
