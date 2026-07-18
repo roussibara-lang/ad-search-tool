@@ -2,22 +2,22 @@ import sys
 import csv
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from ldap3 import Server, Connection, ALL, NTLM
+from ldap3 import Server, Connection, ALL
 
 class ADSearchApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Active Directory Targeted Search - SONATRACH")
-        self.root.geometry("800x620")
+        self.root.title("Active Directory Admin Search - SONATRACH")
+        self.root.geometry("800x550")
         
         style = ttk.Style()
         style.theme_use("vista" if sys.platform == "win32" else "clam")
         
         # --- Connection Frame ---
-        conn_frame = ttk.LabelFrame(root, text=" Server Connection Configuration ", padding=10)
+        conn_frame = ttk.LabelFrame(root, text=" Directory Environment ", padding=10)
         conn_frame.pack(fill="x", padx=15, pady=10)
         
-        ttk.Label(conn_frame, text="LDAP Server/Domain:").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(conn_frame, text="Domain FQDN:").grid(row=0, column=0, sticky="w", pady=2)
         self.server_entry = ttk.Entry(conn_frame, width=30)
         self.server_entry.grid(row=0, column=1, padx=5, pady=2)
         self.server_entry.insert(0, "corp.sonatrach.dz")
@@ -27,17 +27,8 @@ class ADSearchApp:
         self.base_entry.grid(row=0, column=3, padx=5, pady=2)
         self.base_entry.insert(0, "DC=corp,DC=sonatrach,DC=dz")
 
-        ttk.Label(conn_frame, text="Domain User:").grid(row=1, column=0, sticky="w", pady=2)
-        self.user_entry = ttk.Entry(conn_frame, width=30)
-        self.user_entry.grid(row=1, column=1, padx=5, pady=2)
-        self.user_entry.insert(0, "SONATRACH\\f.berraoui")
-
-        ttk.Label(conn_frame, text="Windows Password:").grid(row=1, column=2, sticky="w", pady=2)
-        self.pass_entry = ttk.Entry(conn_frame, show="*", width=30)
-        self.pass_entry.grid(row=1, column=3, padx=5, pady=2)
-
         # --- Filter Frame ---
-        filter_frame = ttk.LabelFrame(root, text=" Target Search Criteria ", padding=10)
+        filter_frame = ttk.LabelFrame(root, text=" Targeted Search Fields ", padding=10)
         filter_frame.pack(fill="x", padx=15, pady=5)
 
         ttk.Label(filter_frame, text="Username (sAMAccountName):").grid(row=0, column=0, sticky="w", pady=2)
@@ -96,16 +87,10 @@ class ADSearchApp:
         
         server_target = self.server_entry.get().strip()
         base_dn = self.base_entry.get().strip()
-        user_identity = self.user_entry.get().strip()
-        user_password = self.pass_entry.get()
         
         search_user = self.username_entry.get().strip()
         search_mat = self.matricule_entry.get().strip()
         search_name = self.name_entry.get().strip()
-
-        if not user_password:
-            messagebox.showwarning("Password Required", "Please enter your domain password to authenticate.")
-            return
 
         if not search_user and not search_mat and not search_name:
             messagebox.showwarning("Input Required", "Please enter a Username, Matricule, or Name to filter.")
@@ -120,7 +105,6 @@ class ADSearchApp:
             ldap_filter += f"(displayName=*{search_name}*)"
         ldap_filter += ")"
 
-        # Cycle ports safely if one is firewalled
         ports_to_try = [389, 3268, 636]
         connection_success = False
         last_error = ""
@@ -130,8 +114,9 @@ class ADSearchApp:
                 use_ssl = True if port == 636 else False
                 server = Server(server_target, port=port, use_ssl=use_ssl, get_info=ALL)
                 
-                # NTLM explicit authentication bind
-                with Connection(server, user=user_identity, password=user_password, authentication=NTLM, auto_bind=True) as conn:
+                # 'SASL' authentication mechanism using 'GSSAPI' relies strictly 
+                # on your existing admin Windows Kerberos desktop token. No password needed.
+                with Connection(server, authentication='SASL', sasl_mechanism='GSSAPI', auto_bind=True) as conn:
                     attributes = ['sAMAccountName', 'employeeID', 'displayName', 'department', 'mail']
                     conn.search(search_base=base_dn, search_filter=ldap_filter, attributes=attributes)
                     
@@ -157,9 +142,9 @@ class ADSearchApp:
                 self.export_btn.config(state="normal")
             else:
                 self.export_btn.config(state="disabled")
-                messagebox.showwarning("No Matches", "Connection succeeded, but no records matched your filter criteria.")
+                messagebox.showwarning("No Matches", "Successfully authorized session, but no matching accounts found.")
         else:
-            messagebox.showerror("Connection Failed", f"Could not connect to directory service:\n{last_error}")
+            messagebox.showerror("Authentication Failed", f"Could not authenticate automatically using Windows Admin Token:\n{last_error}")
 
     def export_csv(self):
         if not self.results_data:
