@@ -8,7 +8,7 @@ class ADSearchApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Active Directory Targeted Search - SONATRACH")
-        self.root.geometry("800x550")
+        self.root.geometry("800x620")
         
         style = ttk.Style()
         style.theme_use("vista" if sys.platform == "win32" else "clam")
@@ -20,13 +20,21 @@ class ADSearchApp:
         ttk.Label(conn_frame, text="LDAP Server/Domain:").grid(row=0, column=0, sticky="w", pady=2)
         self.server_entry = ttk.Entry(conn_frame, width=30)
         self.server_entry.grid(row=0, column=1, padx=5, pady=2)
-        # Using the FQDN domain name allows Windows to automatically choose an open Domain Controller
         self.server_entry.insert(0, "corp.sonatrach.dz")
 
         ttk.Label(conn_frame, text="Base DN:").grid(row=0, column=2, sticky="w", pady=2)
         self.base_entry = ttk.Entry(conn_frame, width=30)
         self.base_entry.grid(row=0, column=3, padx=5, pady=2)
         self.base_entry.insert(0, "DC=corp,DC=sonatrach,DC=dz")
+
+        ttk.Label(conn_frame, text="Domain User:").grid(row=1, column=0, sticky="w", pady=2)
+        self.user_entry = ttk.Entry(conn_frame, width=30)
+        self.user_entry.grid(row=1, column=1, padx=5, pady=2)
+        self.user_entry.insert(0, "SONATRACH\\f.berraoui")
+
+        ttk.Label(conn_frame, text="Windows Password:").grid(row=1, column=2, sticky="w", pady=2)
+        self.pass_entry = ttk.Entry(conn_frame, show="*", width=30)
+        self.pass_entry.grid(row=1, column=3, padx=5, pady=2)
 
         # --- Filter Frame ---
         filter_frame = ttk.LabelFrame(root, text=" Target Search Criteria ", padding=10)
@@ -88,10 +96,16 @@ class ADSearchApp:
         
         server_target = self.server_entry.get().strip()
         base_dn = self.base_entry.get().strip()
+        user_identity = self.user_entry.get().strip()
+        user_password = self.pass_entry.get()
         
         search_user = self.username_entry.get().strip()
         search_mat = self.matricule_entry.get().strip()
         search_name = self.name_entry.get().strip()
+
+        if not user_password:
+            messagebox.showwarning("Password Required", "Please enter your domain password to authenticate.")
+            return
 
         if not search_user and not search_mat and not search_name:
             messagebox.showwarning("Input Required", "Please enter a Username, Matricule, or Name to filter.")
@@ -106,7 +120,7 @@ class ADSearchApp:
             ldap_filter += f"(displayName=*{search_name}*)"
         ldap_filter += ")"
 
-        # Try multiple standard active directory ports sequentially if refused (389 -> 3268 Global Catalog -> 636 Secure)
+        # Cycle ports safely if one is firewalled
         ports_to_try = [389, 3268, 636]
         connection_success = False
         last_error = ""
@@ -116,7 +130,8 @@ class ADSearchApp:
                 use_ssl = True if port == 636 else False
                 server = Server(server_target, port=port, use_ssl=use_ssl, get_info=ALL)
                 
-                with Connection(server, authentication=NTLM, auto_bind=True) as conn:
+                # NTLM explicit authentication bind
+                with Connection(server, user=user_identity, password=user_password, authentication=NTLM, auto_bind=True) as conn:
                     attributes = ['sAMAccountName', 'employeeID', 'displayName', 'department', 'mail']
                     conn.search(search_base=base_dn, search_filter=ldap_filter, attributes=attributes)
                     
@@ -132,7 +147,7 @@ class ADSearchApp:
                         self.results_data.append(row_values)
                     
                     connection_success = True
-                    break # Stop trying other ports once successful
+                    break 
             except Exception as e:
                 last_error = str(e)
                 continue
