@@ -10,25 +10,25 @@ class ADSearchApp:
         self.root.title("Active Directory Targeted Search - SONATRACH")
         self.root.geometry("800x550")
         
-        # Style Configuration
         style = ttk.Style()
         style.theme_use("vista" if sys.platform == "win32" else "clam")
         
-        # --- Connection Frame (Automatic Drop) ---
+        # --- Connection Frame ---
         conn_frame = ttk.LabelFrame(root, text=" Server Connection Configuration ", padding=10)
         conn_frame.pack(fill="x", padx=15, pady=10)
         
-        ttk.Label(conn_frame, text="LDAP Server:").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(conn_frame, text="LDAP Server/Domain:").grid(row=0, column=0, sticky="w", pady=2)
         self.server_entry = ttk.Entry(conn_frame, width=30)
         self.server_entry.grid(row=0, column=1, padx=5, pady=2)
-        self.server_entry.insert(0, "ldap://10.1.90.250")
+        # Using the FQDN domain name allows Windows to automatically choose an open Domain Controller
+        self.server_entry.insert(0, "corp.sonatrach.dz")
 
         ttk.Label(conn_frame, text="Base DN:").grid(row=0, column=2, sticky="w", pady=2)
         self.base_entry = ttk.Entry(conn_frame, width=30)
         self.base_entry.grid(row=0, column=3, padx=5, pady=2)
         self.base_entry.insert(0, "DC=corp,DC=sonatrach,DC=dz")
 
-        # --- Filter Frame (Targeted Search) ---
+        # --- Filter Frame ---
         filter_frame = ttk.LabelFrame(root, text=" Target Search Criteria ", padding=10)
         filter_frame.pack(fill="x", padx=15, pady=5)
 
@@ -86,8 +86,8 @@ class ADSearchApp:
             self.tree.delete(row)
         self.results_data.clear()
         
-        server_url = self.server_entry.get()
-        base_dn = self.base_entry.get()
+        server_target = self.server_entry.get().strip()
+        base_dn = self.base_entry.get().strip()
         
         search_user = self.username_entry.get().strip()
         search_mat = self.matricule_entry.get().strip()
@@ -106,32 +106,45 @@ class ADSearchApp:
             ldap_filter += f"(displayName=*{search_name}*)"
         ldap_filter += ")"
 
-        try:
-            server = Server(server_url, get_info=ALL)
-            # NTLM authentication uses your active Windows system profile token automatically
-            with Connection(server, authentication=NTLM, auto_bind=True) as conn:
-                attributes = ['sAMAccountName', 'employeeID', 'displayName', 'department', 'mail']
-                conn.search(search_base=base_dn, search_filter=ldap_filter, attributes=attributes)
+        # Try multiple standard active directory ports sequentially if refused (389 -> 3268 Global Catalog -> 636 Secure)
+        ports_to_try = [389, 3268, 636]
+        connection_success = False
+        last_error = ""
+
+        for port in ports_to_try:
+            try:
+                use_ssl = True if port == 636 else False
+                server = Server(server_target, port=port, use_ssl=use_ssl, get_info=ALL)
                 
-                for entry in conn.entries:
-                    row_values = (
-                        str(entry.sAMAccountName or ''),
-                        str(entry.employeeID or ''),
-                        str(entry.displayName or ''),
-                        str(entry.department or ''),
-                        str(entry.mail or '')
-                    )
-                    self.tree.insert("", "end", values=row_values)
-                    self.results_data.append(row_values)
-                
-                if self.results_data:
-                    self.export_btn.config(state="normal")
-                else:
-                    self.export_btn.config(state="disabled")
-                    messagebox.showwarning("No Matches", "No matching domain accounts found.")
+                with Connection(server, authentication=NTLM, auto_bind=True) as conn:
+                    attributes = ['sAMAccountName', 'employeeID', 'displayName', 'department', 'mail']
+                    conn.search(search_base=base_dn, search_filter=ldap_filter, attributes=attributes)
                     
-        except Exception as e:
-            messagebox.showerror("Connection Failed", f"Automatic Windows Authentication failed:\n{str(e)}")
+                    for entry in conn.entries:
+                        row_values = (
+                            str(entry.sAMAccountName or ''),
+                            str(entry.employeeID or ''),
+                            str(entry.displayName or ''),
+                            str(entry.department or ''),
+                            str(entry.mail or '')
+                        )
+                        self.tree.insert("", "end", values=row_values)
+                        self.results_data.append(row_values)
+                    
+                    connection_success = True
+                    break # Stop trying other ports once successful
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        if connection_success:
+            if self.results_data:
+                self.export_btn.config(state="normal")
+            else:
+                self.export_btn.config(state="disabled")
+                messagebox.showwarning("No Matches", "Connection succeeded, but no records matched your filter criteria.")
+        else:
+            messagebox.showerror("Connection Failed", f"Could not connect to directory service:\n{last_error}")
 
     def export_csv(self):
         if not self.results_data:
