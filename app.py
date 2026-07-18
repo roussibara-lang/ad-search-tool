@@ -7,7 +7,7 @@ from ldap3 import Server, Connection, ALL
 class ADSearchApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Active Directory User Lookup Tool")
+        self.root.title("Active Directory User Lookup Tool - SONATRACH")
         self.root.geometry("750x580")
         
         # Style Configuration
@@ -26,7 +26,8 @@ class ADSearchApp:
         ttk.Label(conn_frame, text="Base DN:").grid(row=0, column=2, sticky="w", pady=2)
         self.base_entry = ttk.Entry(conn_frame, width=28)
         self.base_entry.grid(row=0, column=3, padx=5, pady=2)
-        self.base_entry.insert(0, "DC=company,DC=local")
+        # Tailored directly to your domain environment: corp.sonatrach.dz
+        self.base_entry.insert(0, "DC=corp,DC=sonatrach,DC=dz")
 
         ttk.Label(conn_frame, text="Domain User:").grid(row=1, column=0, sticky="w", pady=2)
         self.user_entry = ttk.Entry(conn_frame, width=28)
@@ -38,7 +39,7 @@ class ADSearchApp:
         self.pass_entry.grid(row=1, column=3, padx=5, pady=2)
 
         # --- Filter Frame ---
-        filter_frame = ttk.LabelFrame(root, text=" Filter Criteria ", padding=10)
+        filter_frame = ttk.LabelFrame(root, text=" Filter Criteria (Leave blank to pull all users) ", padding=10)
         filter_frame.pack(fill="x", padx=15, pady=5)
 
         ttk.Label(filter_frame, text="Department:").grid(row=0, column=0, sticky="w", pady=2)
@@ -98,6 +99,7 @@ class ADSearchApp:
         username = self.user_entry.get()
         password = self.pass_entry.get()
         
+        # Core active person object filter
         ldap_filter = "(&(objectCategory=person)(objectClass=user)"
         if self.dept_entry.get():
             ldap_filter += f"(department={self.dept_entry.get()})"
@@ -107,7 +109,6 @@ class ADSearchApp:
 
         try:
             server = Server(server_url, get_info=ALL)
-            # Using standard 'SIMPLE' string instead of importing an undefined constant
             with Connection(server, user=username, password=password, authentication='SIMPLE', auto_bind=True) as conn:
                 attributes = ['sAMAccountName', 'givenName', 'sn', 'department', 'st', 'mail']
                 conn.search(search_base=base_dn, search_filter=ldap_filter, attributes=attributes)
@@ -126,10 +127,10 @@ class ADSearchApp:
                 
                 if self.results_data:
                     self.export_btn.config(state="normal")
-                    messagebox.showinfo("Done", f"Pulled {len(self.results_data)} matching users successfully.")
+                    messagebox.showinfo("Done", f"Pulled {len(self.results_data)} matching entries from {base_dn} successfully.")
                 else:
                     self.export_btn.config(state="disabled")
-                    messagebox.showwarning("Empty", "No Active Directory entries matched your filter parameters.")
+                    messagebox.showwarning("Empty", f"Connection established with {server_url}, but no entries matched those filter strings.")
                     
         except Exception as e:
             messagebox.showerror("AD Connection Error", f"Could not pull data from the server:\n{str(e)}")
