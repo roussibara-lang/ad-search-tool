@@ -20,11 +20,11 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        pip install ldap3 pyinstaller pyasn1
+        pip install ldap3 pyinstaller pywin32
 
     - name: Compile to EXE with Fixed Imports
       run: |
-        pyinstaller --noconsole --onefile --hidden-import=ldap3 --hidden-import=pyasn1 app.py
+        pyinstaller --noconsole --onefile --hidden-import=ldap3 --hidden-import=win32security app.py
 
     - name: Upload Finished Executable
       uses: actions/upload-artifact@v4
