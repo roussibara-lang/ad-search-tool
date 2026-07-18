@@ -2,7 +2,16 @@ import sys
 import csv
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from ldap3 import Server, Connection, ALL
+
+# Try importing the native Windows COM client
+try:
+    import win32com.client
+except ImportError:
+    messagebox.showerror(
+        "Missing Dependency", 
+        "The 'pywin32' library is missing from this build environment."
+    )
+    sys.exit(1)
 
 class ADSearchApp:
     def __init__(self, root):
@@ -13,23 +22,9 @@ class ADSearchApp:
         style = ttk.Style()
         style.theme_use("vista" if sys.platform == "win32" else "clam")
         
-        # --- Connection Frame ---
-        conn_frame = ttk.LabelFrame(root, text=" Directory Environment ", padding=10)
-        conn_frame.pack(fill="x", padx=15, pady=10)
-        
-        ttk.Label(conn_frame, text="Domain FQDN:").grid(row=0, column=0, sticky="w", pady=2)
-        self.server_entry = ttk.Entry(conn_frame, width=30)
-        self.server_entry.grid(row=0, column=1, padx=5, pady=2)
-        self.server_entry.insert(0, "corp.sonatrach.dz")
-
-        ttk.Label(conn_frame, text="Base DN:").grid(row=0, column=2, sticky="w", pady=2)
-        self.base_entry = ttk.Entry(conn_frame, width=30)
-        self.base_entry.grid(row=0, column=3, padx=5, pady=2)
-        self.base_entry.insert(0, "DC=corp,DC=sonatrach,DC=dz")
-
         # --- Filter Frame ---
-        filter_frame = ttk.LabelFrame(root, text=" Targeted Search Fields ", padding=10)
-        filter_frame.pack(fill="x", padx=15, pady=5)
+        filter_frame = ttk.LabelFrame(root, text=" Targeted Search Fields (Password-Free Admin Mode) ", padding=10)
+        filter_frame.pack(fill="x", padx=15, pady=15)
 
         ttk.Label(filter_frame, text="Username (sAMAccountName):").grid(row=0, column=0, sticky="w", pady=2)
         self.username_entry = ttk.Entry(filter_frame, width=25)
@@ -85,9 +80,6 @@ class ADSearchApp:
             self.tree.delete(row)
         self.results_data.clear()
         
-        server_target = self.server_entry.get().strip()
-        base_dn = self.base_entry.get().strip()
-        
         search_user = self.username_entry.get().strip()
         search_mat = self.matricule_entry.get().strip()
         search_name = self.name_entry.get().strip()
@@ -96,6 +88,7 @@ class ADSearchApp:
             messagebox.showwarning("Input Required", "Please enter a Username, Matricule, or Name to filter.")
             return
 
+        # Build LDAP query targeting corp.sonatrach.dz
         ldap_filter = "(&(objectCategory=person)(objectClass=user)"
         if search_user:
             ldap_filter += f"(sAMAccountName=*{search_user}*)"
@@ -105,46 +98,51 @@ class ADSearchApp:
             ldap_filter += f"(displayName=*{search_name}*)"
         ldap_filter += ")"
 
-        ports_to_try = [389, 3268, 636]
-        connection_success = False
-        last_error = ""
+        try:
+            # Connect natively using Active Directory's system COM provider
+            conn = win32com.client.Dispatch("ADODB.Connection")
+            conn.Provider = "ADSDSOObject"
+            conn.Open("Active Directory Provider")
+            
+            cmd = win32com.client.Dispatch("ADODB.Command")
+            cmd.ActiveConnection = conn
+            
+            # Formulate the query string using the live RootDSE
+            query = f"<LDAP://corp.sonatrach.dz/DC=corp,DC=sonatrach,DC=dz>;{ldap_filter};sAMAccountName,employeeID,displayName,department,mail;subtree"
+            cmd.CommandText = query
+            
+            recordset, _ = cmd.Execute()
+            
+            while not recordset.EOF:
+                # Safely pull AD attribute values
+                user_id = recordset.Fields("sAMAccountName").Value
+                matricule = recordset.Fields("employeeID").Value
+                fullname = recordset.Fields("displayName").Value
+                dept = recordset.Fields("department").Value
+                email = recordset.Fields("mail").Value
 
-        for port in ports_to_try:
-            try:
-                use_ssl = True if port == 636 else False
-                server = Server(server_target, port=port, use_ssl=use_ssl, get_info=ALL)
-                
-                # 'SASL' authentication mechanism using 'GSSAPI' relies strictly 
-                # on your existing admin Windows Kerberos desktop token. No password needed.
-                with Connection(server, authentication='SASL', sasl_mechanism='GSSAPI', auto_bind=True) as conn:
-                    attributes = ['sAMAccountName', 'employeeID', 'displayName', 'department', 'mail']
-                    conn.search(search_base=base_dn, search_filter=ldap_filter, attributes=attributes)
-                    
-                    for entry in conn.entries:
-                        row_values = (
-                            str(entry.sAMAccountName or ''),
-                            str(entry.employeeID or ''),
-                            str(entry.displayName or ''),
-                            str(entry.department or ''),
-                            str(entry.mail or '')
-                        )
-                        self.tree.insert("", "end", values=row_values)
-                        self.results_data.append(row_values)
-                    
-                    connection_success = True
-                    break 
-            except Exception as e:
-                last_error = str(e)
-                continue
+                row_values = (
+                    str(user_id or ''),
+                    str(matricule or ''),
+                    str(fullname or ''),
+                    str(dept or ''),
+                    str(email or '')
+                )
+                self.tree.insert("", "end", values=row_values)
+                self.results_data.append(row_values)
+                recordset.MoveNext()
 
-        if connection_success:
+            recordset.Close()
+            conn.Close()
+
             if self.results_data:
                 self.export_btn.config(state="normal")
             else:
                 self.export_btn.config(state="disabled")
-                messagebox.showwarning("No Matches", "Successfully authorized session, but no matching accounts found.")
-        else:
-            messagebox.showerror("Authentication Failed", f"Could not authenticate automatically using Windows Admin Token:\n{last_error}")
+                messagebox.showwarning("No Matches", "No matching domain accounts found.")
+
+        except Exception as e:
+            messagebox.showerror("Execution Failed", f"Could not perform lookup operation natively:\n{str(e)}")
 
     def export_csv(self):
         if not self.results_data:
